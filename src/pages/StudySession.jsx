@@ -7,6 +7,7 @@ import { calculateSM2 } from '../lib/sm2';
 import MultipleChoice from '../components/MultipleChoice';
 import Writing from '../components/Writing';
 import Shadowing from '../components/Shadowing';
+import Listening from '../components/Listening';
 
 /**
  * Helper to play audio using the Web Speech API
@@ -28,6 +29,15 @@ const StudySession = () => {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [exerciseType, setExerciseType] = useState('shadowing');
   const [error, setError] = useState(null);
+  const [isSpeakingEnabled, setIsSpeakingEnabled] = useState(true);
+
+  // Check speech recognition support on initial mount
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setIsSpeakingEnabled(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -103,7 +113,7 @@ const StudySession = () => {
           const reps = currentItem.state.repetitions;
           
           const newWordTypes = ['multipleChoice', 'shadowing'];
-          const reviewWordTypes = ['multipleChoice', 'writing', 'shadowing'];
+          const reviewWordTypes = ['multipleChoice', 'writing', 'shadowing', 'listening'];
           
           let chosenType = 'shadowing';
           if (reps === 0) {
@@ -180,13 +190,30 @@ const StudySession = () => {
   const currentItem = queue[currentWordIndex];
   const word = currentItem.word;
 
+  const isBrowserSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
   return (
     <div style={styles.pageContainer}>
       <header style={styles.header}>
         <button onClick={() => navigate('/')} style={styles.outlineButton}>← Dashboard</button>
-        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end'}}>
-          <span style={{color: '#6b7280'}}>Card {currentWordIndex + 1} of {queue.length}</span>
-          <span style={{color: '#9ca3af', fontSize: '0.8rem', textTransform: 'uppercase'}}>{exerciseType}</span>
+        
+        <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+          {isBrowserSupported && (
+            <label style={{display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#4b5563', cursor: 'pointer', backgroundColor: '#f3f4f6', padding: '0.4rem 0.8rem', borderRadius: '20px'}}>
+              <input 
+                type="checkbox" 
+                checked={isSpeakingEnabled}
+                onChange={(e) => setIsSpeakingEnabled(e.target.checked)}
+                style={{cursor: 'pointer'}}
+              />
+              🎤 Mic Enabled
+            </label>
+          )}
+
+          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end'}}>
+            <span style={{color: '#6b7280'}}>Card {currentWordIndex + 1} of {queue.length}</span>
+            <span style={{color: '#9ca3af', fontSize: '0.8rem', textTransform: 'uppercase'}}>{exerciseType}</span>
+          </div>
         </div>
       </header>
 
@@ -199,8 +226,17 @@ const StudySession = () => {
               <Writing word={word} onComplete={handleRating} />
           )}
 
+          {exerciseType === 'listening' && (
+              <Listening word={word} onComplete={handleRating} playAudio={playAudio} />
+          )}
+
           {exerciseType === 'shadowing' && (
-              <Shadowing word={word} onComplete={handleRating} playAudio={playAudio} />
+              <Shadowing 
+                word={word} 
+                onComplete={handleRating} 
+                playAudio={playAudio} 
+                isSpeakingEnabled={isSpeakingEnabled}
+              />
           )}
       </div>
     </div>

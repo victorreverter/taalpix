@@ -1,12 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-const Shadowing = ({ word, onComplete, playAudio }) => {
+const Shadowing = ({ word, onComplete, playAudio, isSpeakingEnabled }) => {
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isSupported, setIsSupported] = useState(true);
+  
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
       setIsAnswerRevealed(false);
+      setTranscript('');
+      setIsRecording(false);
       playAudio(word.dutch);
+      
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+          setIsSupported(true);
+          recognitionRef.current = new SpeechRecognition();
+          recognitionRef.current.continuous = false;
+          recognitionRef.current.lang = 'nl-NL';
+          recognitionRef.current.interimResults = true;
+          
+          recognitionRef.current.onresult = (event) => {
+            let currentTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                currentTranscript += event.results[i][0].transcript;
+            }
+            setTranscript(currentTranscript);
+          };
+          
+          recognitionRef.current.onerror = (event) => {
+            console.error("Speech recognition error", event.error);
+            setIsRecording(false);
+          };
+          
+          recognitionRef.current.onend = () => {
+            setIsRecording(false);
+          };
+      } else {
+          setIsSupported(false);
+      }
   }, [word]);
+
+  const startRecording = () => {
+    if (recognitionRef.current && isSpeakingEnabled) {
+      setTranscript('');
+      try {
+        recognitionRef.current.start();
+        setIsRecording(true);
+      } catch (err) {
+        console.error("Recognition already started or error:", err);
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+  };
 
   return (
     <div style={styles.container}>
@@ -16,9 +70,35 @@ const Shadowing = ({ word, onComplete, playAudio }) => {
       </button>
 
       {!isAnswerRevealed ? (
-        <button onClick={() => setIsAnswerRevealed(true)} style={{...styles.button, width: '100%', marginTop: '2rem'}}>
-          Reveal Answer
-        </button>
+         <div style={{width: '100%', marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center'}}>
+            
+            {isSpeakingEnabled && isSupported && (
+                <div style={styles.speechContainer}>
+                    <button 
+                        onMouseDown={startRecording}
+                        onMouseUp={stopRecording}
+                        onMouseLeave={stopRecording}
+                        onTouchStart={startRecording}
+                        onTouchEnd={stopRecording}
+                        style={{
+                            ...styles.micButton, 
+                            backgroundColor: isRecording ? '#ef4444' : '#f3f4f6',
+                            color: isRecording ? 'white' : '#4b5563',
+                            border: isRecording ? '2px solid #ef4444' : '2px solid #e5e7eb'
+                        }}
+                    >
+                        {isRecording ? '🎤 Listening...' : '🎤 Hold Space or Click to Speak'}
+                    </button>
+                    {transcript && (
+                        <p style={styles.transcriptText}>"{transcript}"</p>
+                    )}
+                </div>
+            )}
+            
+            <button onClick={() => setIsAnswerRevealed(true)} style={{...styles.button, width: '100%'}}>
+              Reveal Answer
+            </button>
+        </div>
       ) : (
         <div style={styles.back}>
           <hr style={styles.divider} />
@@ -68,7 +148,35 @@ const styles = {
   dutchWord: {
     fontSize: '3rem',
     margin: 0,
-    color: '#1f2937'
+    color: '#1f2937',
+    textAlign: 'center'
+  },
+  speechContainer: {
+     display: 'flex',
+     flexDirection: 'column',
+     alignItems: 'center',
+     width: '100%',
+     gap: '1rem',
+     backgroundColor: '#fafafa',
+     padding: '1.5rem',
+     borderRadius: '8px',
+     border: '1px solid #e5e7eb'
+  },
+  micButton: {
+      padding: '1rem 2rem',
+      borderRadius: '30px',
+      fontSize: '1.1rem',
+      fontWeight: 'bold',
+      cursor: 'pointer',
+      transition: 'all 0.1s ease',
+      userSelect: 'none'
+  },
+  transcriptText: {
+      margin: 0,
+      fontSize: '1.2rem',
+      color: '#2563eb',
+      fontStyle: 'italic',
+      textAlign: 'center'
   },
   back: {
     marginTop: '1.5rem',
