@@ -8,30 +8,40 @@ const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [dueCount, setDueCount] = useState(0);
+  const [newWordsCount, setNewWordsCount] = useState(0);
   const [loadingStats, setLoadingStats] = useState(true);
   const [seedStatus, setSeedStatus] = useState('');
   const [isSeeding, setIsSeeding] = useState(false);
 
-  useEffect(() => {
+  const fetchDueCount = async () => {
     if (!user) return;
+    setLoadingStats(true);
     
-    const fetchDueCount = async () => {
-        setLoadingStats(true);
-        // We count how many words have a next_review_date strictly before or equal to right now
-        const { count, error } = await supabase
-            .from('user_word_states')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .lte('next_review_date', new Date().toISOString());
+    // 1. Fetch due reviews
+    const { count: due, error: dueError } = await supabase
+        .from('user_word_states')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .lte('next_review_date', new Date().toISOString());
 
-        if (error) {
-            console.error("Error fetching due count", error);
-        } else {
-            setDueCount(count || 0);
-        }
-        setLoadingStats(false);
-    };
+    if (!dueError) {
+        setDueCount(due || 0);
+    }
 
+    // 2. Fetch total words existing in the dictionary
+    const { count: totalWords } = await supabase.from('words').select('*', { count: 'exact', head: true });
+    
+    // 3. Fetch count of words this user has encountered
+    const { count: studiedWords } = await supabase.from('user_word_states').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+    
+    if (totalWords !== null && studiedWords !== null) {
+        setNewWordsCount(Math.max(0, totalWords - studiedWords));
+    }
+
+    setLoadingStats(false);
+  };
+
+  useEffect(() => {
     fetchDueCount();
   }, [user]);
 
@@ -66,8 +76,8 @@ const Dashboard = () => {
     if (error) {
         setSeedStatus('Error: ' + error.message);
     } else {
-        setSeedStatus('Progress reset! You have due words now.');
-        setDueCount(5);
+        setSeedStatus('Progress reset! Computing new due words...');
+        await fetchDueCount();
     }
     setIsSeeding(false);
   };
@@ -95,9 +105,15 @@ const Dashboard = () => {
             <p>Calculating due words...</p>
         ) : (
             <div style={styles.flexBox}>
-                <div>
-                    <h3 style={styles.bigNumber}>{dueCount}</h3>
-                    <p style={styles.subText}>Words due for review</p>
+                <div style={{display: 'flex', gap: '3rem'}}>
+                    <div>
+                        <h3 style={styles.bigNumber}>{dueCount}</h3>
+                        <p style={styles.subText}>Due for review</p>
+                    </div>
+                    <div>
+                        <h3 style={{...styles.bigNumber, color: '#10b981'}}>{newWordsCount}</h3>
+                        <p style={styles.subText}>New words waiting</p>
+                    </div>
                 </div>
                 
                 <button 

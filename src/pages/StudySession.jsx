@@ -56,8 +56,9 @@ const StudySession = () => {
 
         if (dueError) throw dueError;
 
+        let formattedQueue = [];
         if (dueStates && dueStates.length > 0) {
-          const formattedQueue = dueStates.map(state => ({
+          formattedQueue = dueStates.map(state => ({
             word: state.words,
             state: {
               interval: state.interval,
@@ -65,9 +66,10 @@ const StudySession = () => {
               repetitions: state.repetitions
             }
           }));
-          setQueue(formattedQueue);
-        } else {
-          // 2. Fetch New Words if Queue is empty
+        }
+        
+        // 2. Fetch new words to ensure a robust session of at least 30 words
+        if (formattedQueue.length < 30) {
           const { data: allStates, error: stateError } = await supabase
             .from('user_word_states')
             .select('word_id')
@@ -75,17 +77,18 @@ const StudySession = () => {
             
           if (stateError) throw stateError;
           
-          let newWordsQuery = supabase.from('words').select('*').limit(5);
+          const stateIds = allStates ? allStates.map(s => s.word_id) : [];
           
-          if (allStates && allStates.length > 0) {
-            const stateIds = allStates.map(s => s.word_id);
-            newWordsQuery = newWordsQuery.not('id', 'in', `(${stateIds.join(',')})`);
-          }
-          
-          const { data: newWords, error: newError } = await newWordsQuery;
+          const { data: allWords, error: newError } = await supabase.from('words').select('*');
           if (newError) throw newError;
 
-          const formattedQueue = (newWords || []).map(word => ({
+          const unseenWords = (allWords || []).filter(w => !stateIds.includes(w.id));
+          
+          // Pad the queue to reach 30
+          const needed = 30 - formattedQueue.length;
+          const newWords = unseenWords.slice(0, needed);
+
+          const newQueue = newWords.map(word => ({
             word: word,
             state: {
               interval: 0,
@@ -93,8 +96,11 @@ const StudySession = () => {
               repetitions: 0
             }
           }));
-          setQueue(formattedQueue);
+          
+          formattedQueue = [...formattedQueue, ...newQueue];
         }
+        
+        setQueue(formattedQueue);
       } catch (err) {
         console.error("Error fetching queue:", err);
         setError("Failed to load study queue. Please try again.");
