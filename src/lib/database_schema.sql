@@ -1,149 +1,240 @@
--- Enable UUID extension if not already enabled
+-- ============================================
+-- TAALPIX SUPABASE SCHEMA
+-- ============================================
+-- Run this in your Supabase SQL Editor
+-- ============================================
+
+-- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
--- 1. Words Table (Publicly readable)
-create table public.words (
-  id uuid primary key default uuid_generate_v4(),
-  dutch text not null,
-  spanish text not null,
-  frequency_rank int,
-  level text, -- e.g., 'A1', 'A2', 'B1'
-  example_sentence_dutch text,
-  example_sentence_spanish text,
-  category text,
-  pixel_art_image_id text,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- Drop existing tables if they exist (in correct order due to FK constraints)
+DROP TABLE IF EXISTS session_retry_queue CASCADE;
+DROP TABLE IF EXISTS study_sessions CASCADE;
+DROP TABLE IF EXISTS user_word_states CASCADE;
+DROP TABLE IF EXISTS user_scene_progress CASCADE;
+DROP TABLE IF EXISTS user_level_progress CASCADE;
+DROP TABLE IF EXISTS user_profiles CASCADE;
+DROP TABLE IF EXISTS dialogues CASCADE;
+DROP TABLE IF EXISTS sentences CASCADE;
+DROP TABLE IF EXISTS exercise_words CASCADE;
+DROP TABLE IF EXISTS exercises CASCADE;
+DROP TABLE IF EXISTS scene_words CASCADE;
+DROP TABLE IF EXISTS words CASCADE;
+DROP TABLE IF EXISTS scenes CASCADE;
+
+-- ============================================
+-- CORE CONTENT TABLES
+-- ============================================
+
+-- 1. Scenes Table
+CREATE TABLE scenes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  description TEXT,
+  level TEXT NOT NULL,
+  scene_order INTEGER NOT NULL,
+  word_count INTEGER DEFAULT 7,
+  is_premium BOOLEAN DEFAULT FALSE,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS for Words
-alter table public.words enable row level security;
-
--- Policy: Words are publicly readable
-create policy "Words are publicly readable."
-  on public.words for select
-  using ( true );
-
--- Policy: Only authenticated users (admins realistically, but keeping it simple for now as requested) can insert/update/delete.
--- Ideally, you'd have an admin role check here.
-create policy "Authenticated users can create words"
-  on public.words for insert
-  to authenticated
-  with check (true);
-
-create policy "Authenticated users can update words"
-  on public.words for update
-  to authenticated
-  using (true);
-
-create policy "Authenticated users can delete words"
-  on public.words for delete
-  to authenticated
-  using (true);
-
--- 2. User Profiles Table (Private to user)
-create table public.user_profiles (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  current_streak int default 0 not null,
-  longest_streak int default 0 not null,
-  last_activity_date date,
-  total_words_mastered int default 0 not null,
-  current_level text default 'A1' not null,
-  native_language text default 'es' not null,
-  target_language text default 'nl' not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 2. Words Table
+CREATE TABLE words (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  dutch TEXT NOT NULL,
+  spanish TEXT NOT NULL,
+  category TEXT NOT NULL,
+  frequency_rank INTEGER NOT NULL,
+  level TEXT NOT NULL,
+  pixel_art_placeholder TEXT,
+  audio_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS for User Profiles
-alter table public.user_profiles enable row level security;
-
--- Policy: Users can only select their own profile
-create policy "Users can view their own profile."
-  on public.user_profiles for select
-  using ( auth.uid() = user_id );
-
--- Policy: Users can insert their own profile (typically done via trigger on auth.users creation, but good to have)
-create policy "Users can insert their own profile."
-  on public.user_profiles for insert
-  with check ( auth.uid() = user_id );
-
--- Policy: Users can update their own profile
-create policy "Users can update their own profile."
-  on public.user_profiles for update
-  using ( auth.uid() = user_id );
-
--- Trigger to automatically wrap updated_at (optional but good practice)
-create or replace function public.handle_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
-
-create trigger handle_profiles_updated_at
-  before update on public.user_profiles
-  for each row execute procedure public.handle_updated_at();
-
--- 3. User Word States Table (Spaced Repetition Data - Private to user)
-create table public.user_word_states (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid references auth.users(id) on delete cascade not null,
-  word_id uuid references public.words(id) on delete cascade not null,
-  interval int default 0 not null,
-  ease_factor float default 2.5 not null,
-  repetitions int default 0 not null,
-  next_review_date timestamp with time zone default now() not null,
-  last_reviewed_at timestamp with time zone,
-  is_unlocked boolean default false not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(user_id, word_id) -- A user has only one state per word
+-- 3. Scene Words (join table)
+CREATE TABLE scene_words (
+  scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
+  word_id UUID REFERENCES words(id) ON DELETE CASCADE,
+  word_order INTEGER NOT NULL,
+  PRIMARY KEY (scene_id, word_id)
 );
 
--- Enable RLS for User Word States
-alter table public.user_word_states enable row level security;
-
--- Policy: Users can only view their own states
-create policy "Users can view their own word states."
-  on public.user_word_states for select
-  using ( auth.uid() = user_id );
-
--- Policy: Users can insert their own states
-create policy "Users can insert their own word states."
-  on public.user_word_states for insert
-  with check ( auth.uid() = user_id );
-
--- Policy: Users can update their own states
-create policy "Users can update their own word states."
-  on public.user_word_states for update
-  using ( auth.uid() = user_id );
-
--- Policy: Users can delete their own states
-create policy "Users can delete their own word states."
-  on public.user_word_states for delete
-  using ( auth.uid() = user_id );
-
--- 4. Exercise Logs Table (History of interactions - Private to user)
-create table public.exercise_logs (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid references auth.users(id) on delete cascade not null,
-  word_id uuid references public.words(id) on delete cascade not null,
-  exercise_type text not null, -- e.g., 'multiple_choice', 'typing', 'flashcard'
-  was_correct boolean not null,
-  reviewed_at timestamp with time zone default now() not null
+-- 4. Exercises Table
+CREATE TABLE exercises (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
+  exercise_type TEXT NOT NULL,
+  exercise_order INTEGER NOT NULL,
+  config JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS for Exercise Logs
-alter table public.exercise_logs enable row level security;
+-- 5. Exercise Words
+CREATE TABLE exercise_words (
+  exercise_id UUID REFERENCES exercises(id) ON DELETE CASCADE,
+  word_id UUID REFERENCES words(id) ON DELETE CASCADE,
+  word_order INTEGER,
+  PRIMARY KEY (exercise_id, word_id)
+);
 
--- Policy: Users can only view their own logs
-create policy "Users can view their own exercise logs."
-  on public.exercise_logs for select
-  using ( auth.uid() = user_id );
+-- 6. Sentences Table
+CREATE TABLE sentences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
+  dutch TEXT NOT NULL,
+  spanish TEXT NOT NULL,
+  difficulty INTEGER DEFAULT 1,
+  word_ids UUID[],
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Policy: Users can insert their own logs
-create policy "Users can insert their own exercise logs."
-  on public.exercise_logs for insert
-  with check ( auth.uid() = user_id );
+-- 7. Dialogues Table
+CREATE TABLE dialogues (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
+  dialogue_order INTEGER NOT NULL,
+  speaker TEXT NOT NULL,
+  line_dutch TEXT NOT NULL,
+  line_spanish TEXT NOT NULL,
+  is_user_line BOOLEAN DEFAULT FALSE,
+  response_type TEXT DEFAULT 'multiple_choice',
+  response_options JSONB,
+  correct_response TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Note: Typically logs are immutable, so we might intentionally omit UPDATE/DELETE policies.
+-- ============================================
+-- USER PROGRESS TABLES
+-- ============================================
+
+-- 8. User Profiles
+CREATE TABLE user_profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  current_streak INTEGER DEFAULT 0,
+  longest_streak INTEGER DEFAULT 0,
+  last_activity_date DATE,
+  total_words_mastered INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. User Level Progress
+CREATE TABLE user_level_progress (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  level TEXT NOT NULL,
+  unlocked BOOLEAN DEFAULT FALSE,
+  scenes_completed INTEGER DEFAULT 0,
+  total_scenes INTEGER NOT NULL,
+  unlocked_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, level)
+);
+
+-- 10. User Scene Progress
+CREATE TABLE user_scene_progress (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  scene_id UUID REFERENCES scenes(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'locked',
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  mistakes_made INTEGER DEFAULT 0,
+  PRIMARY KEY (user_id, scene_id)
+);
+
+-- 11. User Word States (SM-2 + Review Queue)
+CREATE TABLE user_word_states (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  word_id UUID REFERENCES words(id) ON DELETE CASCADE,
+  repetitions INTEGER DEFAULT 0,
+  interval_days INTEGER DEFAULT 0,
+  ease_factor DECIMAL DEFAULT 2.5,
+  next_review_date TIMESTAMPTZ,
+  last_practiced TIMESTAMPTZ,
+  status TEXT DEFAULT 'learning',
+  mistake_count INTEGER DEFAULT 0,
+  in_review_queue BOOLEAN DEFAULT FALSE,
+  consecutive_correct INTEGER DEFAULT 0,
+  mastered_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, word_id)
+);
+
+-- 12. Study Sessions
+CREATE TABLE study_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  scene_id UUID REFERENCES scenes(id),
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  words_practiced INTEGER DEFAULT 0,
+  mistakes_made INTEGER DEFAULT 0,
+  accuracy DECIMAL,
+  session_type TEXT DEFAULT 'learning'
+);
+
+-- 13. Session Retry Queue
+CREATE TABLE session_retry_queue (
+  session_id UUID REFERENCES study_sessions(id) ON DELETE CASCADE,
+  word_id UUID REFERENCES words(id) ON DELETE CASCADE,
+  exercise_type TEXT NOT NULL,
+  retry_count INTEGER DEFAULT 0,
+  inserted_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (session_id, word_id, exercise_type)
+);
+
+-- ============================================
+-- RLS POLICIES
+-- ============================================
+
+ALTER TABLE scenes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE words ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scene_words ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exercise_words ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sentences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dialogues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_level_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_scene_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_word_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE session_retry_queue ENABLE ROW LEVEL SECURITY;
+
+-- Public read: content tables
+CREATE POLICY "Public read access" ON scenes FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON words FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON scene_words FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON exercises FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON exercise_words FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON sentences FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON dialogues FOR SELECT USING (true);
+
+-- User data: user-specific access
+CREATE POLICY "User profiles are user-specific" ON user_profiles 
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "User level progress is user-specific" ON user_level_progress 
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "User scene progress is user-specific" ON user_scene_progress 
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "User word states are user-specific" ON user_word_states 
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Study sessions are user-specific" ON study_sessions 
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Session retry queue is user-specific" ON session_retry_queue 
+  FOR ALL USING (EXISTS (
+    SELECT 1 FROM study_sessions WHERE id = session_id AND user_id = auth.uid()
+  ));
+
+-- ============================================
+-- INDEXES (for performance)
+-- ============================================
+
+CREATE INDEX idx_user_word_states_review ON user_word_states(user_id, in_review_queue, next_review_date);
+CREATE INDEX idx_user_scene_progress_user ON user_scene_progress(user_id, status);
+CREATE INDEX idx_user_level_progress_user ON user_level_progress(user_id, unlocked);
+CREATE INDEX idx_scenes_level ON scenes(level, scene_order);
+CREATE INDEX idx_words_level ON words(level, frequency_rank);

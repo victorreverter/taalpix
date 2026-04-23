@@ -4,28 +4,55 @@ import { useAuth } from '../contexts/AuthContext';
 import PixelButton from '../components/common/PixelButton';
 import PixelCard from '../components/common/PixelCard';
 
-const Login = () => {
+const SignUp = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
-  const { signIn } = useAuth();
+  const { signUp } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const validatePassword = (pwd) => {
+    if (pwd.length < 8) {
+      return 'Password must be at least 8 characters';
+    }
+    if (!/\d/.test(pwd)) {
+      return 'Password must contain at least one number';
+    }
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+      return 'Password must contain at least one special character';
+    }
+    return null;
+  };
+
+  const handleSignUp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setMessage(null);
 
-    const { data, error } = await signIn(email, password);
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      setLoading(false);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await signUp(email, password);
 
     if (error) {
       setError(error.message);
     } else {
-      setMessage('Logged in successfully!');
-      navigate('/');
+      setMessage('Account created! Please check your email to confirm.');
+      setTimeout(() => navigate('/login'), 2000);
     }
     setLoading(false);
   };
@@ -37,10 +64,10 @@ const Login = () => {
           <h1 className="font-pixel text-2xl md:text-3xl text-tp-primary mb-2">
             TaalPix
           </h1>
-          <p className="text-tp-text2">Learn Dutch with Pixel Art</p>
+          <p className="text-tp-text2">Create your account</p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={handleSignUp} className="space-y-6">
           <div>
             <label htmlFor="email" className="block font-pixel text-xs text-tp-text2 mb-2">
               Email
@@ -69,6 +96,24 @@ const Login = () => {
               className="w-full px-4 py-3 border-2 border-solid border-tp-border bg-tp-surface text-tp-text font-body focus:outline-none focus:border-tp-primary"
               placeholder="••••••••"
             />
+            <p className="text-xs text-tp-text3 mt-1">
+              Min 8 chars, 1 number, 1 special character
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="confirmPassword" className="block font-pixel text-xs text-tp-text2 mb-2">
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 border-2 border-solid border-tp-border bg-tp-surface text-tp-text font-body focus:outline-none focus:border-tp-primary"
+              placeholder="••••••••"
+            />
           </div>
 
           {error && (
@@ -90,15 +135,15 @@ const Login = () => {
             disabled={loading}
             className="w-full"
           >
-            {loading ? 'Loading...' : 'Login'}
+            {loading ? 'Creating...' : 'Sign Up'}
           </PixelButton>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-tp-text2 text-sm">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-tp-primary hover:underline font-pixel text-xs">
-              Sign Up
+            Already have an account?{' '}
+            <Link to="/login" className="text-tp-primary hover:underline font-pixel text-xs">
+              Login
             </Link>
           </p>
         </div>
@@ -107,4 +152,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default SignUp;
