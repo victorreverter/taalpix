@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '/taalpix/',
   plugins: [
     react(),
     VitePWA({
@@ -15,8 +16,8 @@ export default defineConfig({
         theme_color: '#2D5FA6',
         background_color: '#F5F0E8',
         display: 'standalone',
-        scope: '/',
-        start_url: '/',
+        scope: '/taalpix/',
+        start_url: '/taalpix/',
         icons: [
           {
             src: 'favicon.svg',
@@ -33,7 +34,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,mp3}']
       }
     })
   ],
