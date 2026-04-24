@@ -1,8 +1,6 @@
 -- ============================================
--- ============================================
 -- TAALPIX - DROP EXISTING TABLES
 -- Run this FIRST if you have existing tables
--- ============================================
 -- ============================================
 
 -- Drop all tables in correct order (due to foreign key constraints)
